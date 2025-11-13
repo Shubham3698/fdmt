@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pinterest-style Image Feed with Flip Cards</title>
+  <style>
+    :root{
+      --gap: 16px;
+      --card-radius: 12px;
+      --card-shadow: 0 6px 18px rgba(0,0,0,0.12);
+      --bg: #f7f7f8;
+      --accent: #ff6b6b;
+      --text: #111;
+    }
+    html,body{
+      height:100%;
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,#ffffff 0%, #f5f6f8 100%);
+      color:var(--text);
+      -webkit-font-smoothing:antialiased;
+    }
+
+    header{
+      position:sticky;
+      top:0;
+      background:rgba(255,255,255,0.9);
+      backdrop-filter: blur(6px);
+      z-index:10;
+      padding:12px 18px;
+      display:flex;
+      align-items:center;
+      gap:12px;
+      border-bottom:1px solid rgba(0,0,0,0.04);
+    }
+    header h1{ margin:0; font-size:18px; letter-spacing:0.2px; }
+    header .hint{ margin-left:auto; color:#666; font-size:13px; }
+
+    /* container providing masonry using CSS columns */
+    .masonry {
+      column-gap: var(--gap);
+      padding: 18px;
+      max-width:1200px;
+      margin: 14px auto;
+    }
+
+    /* responsive column counts */
+    @media (min-width: 1200px){ .masonry{ column-count:4; } }
+    @media (min-width: 900px) and (max-width:1199px){ .masonry{ column-count:3; } }
+    @media (min-width: 600px) and (max-width:899px){ .masonry{ column-count:2; } }
+    @media (max-width:599px){ .masonry{ column-count:1; } }
+
+    /* card: make it inline-block to behave within columns */
+    .card {
+      display: inline-block;
+      width: 100%;
+      margin: 0 0 var(--gap);
+      border-radius: var(--card-radius);
+      perspective: 1200px; /* for 3D flip */
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+
+    .card-inner {
+      position: relative;
+      transform-style: preserve-3d;
+      transition: transform 600ms cubic-bezier(.2,.8,.2,1);
+      border-radius: var(--card-radius);
+    }
+
+    /* flipped state */
+    .card.is-flipped .card-inner {
+      transform: rotateY(180deg);
+    }
+
+    /* front and back faces */
+    .card-face {
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      border-radius: var(--card-radius);
+      overflow: hidden;
+      box-shadow: var(--card-shadow);
+      background:#fff;
+    }
+
+    .card-front img {
+      display:block;
+      width:100%;
+      height:auto;
+    }
+
+    /* small caption overlay */
+    .card-caption {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      right: 10px;
+      padding: 8px 10px;
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 100%);
+      color:#fff;
+      font-weight:600;
+      font-size:14px;
+      border-radius:8px;
+      pointer-events:none;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.45);
+    }
+
+    /* back face (description) */
+    .card-back {
+      transform: rotateY(180deg);
+      padding: 14px;
+      box-sizing:border-box;
+      min-height: 140px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      justify-content:space-between;
+    }
+    .desc {
+      color:#222;
+      font-size:14px;
+      line-height:1.35;
+    }
+    .meta {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      margin-top:8px;
+    }
+    .author{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:13px;
+      color:#444;
+    }
+    .avatar{
+      width:32px;
+      height:32px;
+      border-radius:50%;
+      background:#ddd;
+      overflow:hidden;
+      flex:0 0 32px;
+    }
+    .btn-row{
+      display:flex;
+      gap:8px;
+      margin-top:6px;
+    }
+    .btn{
+      padding:8px 10px;
+      border-radius:10px;
+      font-size:13px;
+      border: none;
+      background: #f0f0f0;
+      cursor:pointer;
+    }
+    .btn.like{ color:var(--accent); font-weight:600; }
+
+    /* subtle hover effect on non-touch devices */
+    @media (hover:hover) and (pointer: coarse) {
+      .card:hover .card-inner { transform: translateY(-6px) rotateX(0.5deg); box-shadow: 0 12px 28px rgba(0,0,0,0.12); }
+    }
+
+    /* loader */
+    .loader {
+      text-align:center;
+      padding:30px 0 80px;
+      color:#666;
+    }
+
+    /* small accessibility focus */
+    .card:focus { outline: 3px solid rgba(255,107,107,0.12); outline-offset:6px; }
+
+  </style>
+</head>
+<body>
+  <header>
+    <h1>My Pins</h1>
+    <div class="hint">Scroll to load • Click card to flip</div>
+  </header>
+
+  <main>
+    <div id="masonry" class="masonry" aria-live="polite"></div>
+    <div id="loader" class="loader">Loading more images…</div>
+  </main>
+
+  <script>
+    const sampleSeeds = [1021,1022,1023,1024,1025,1026,1027,1028,1029,1030,
+      1031,1032,1033,1034,1035,1036,1037,1038,1039,1040];
+
+    const masonry = document.getElementById('masonry');
+    const loader = document.getElementById('loader');
+
+    let page = 0;
+    const perPage = 8;
+    let loading = false;
+
+    function makeCard(seed, title, desc, authorName){
+      const card = document.createElement('article');
+      card.className = 'card';
+      card.tabIndex = 0;
+      card.setAttribute('role','button');
+      card.setAttribute('aria-pressed','false');
+
+      const inner = document.createElement('div');
+      inner.className = 'card-inner';
+
+      const front = document.createElement('div');
+      front.className = 'card-face card-front';
+      const h = 300 + (seed % 7) * 40;
+      const img = document.createElement('img');
+      img.src = `https://picsum.photos/seed/${seed}/600/${h}`;
+      img.alt = title || 'Image';
+      img.loading = 'lazy';
+      front.appendChild(img);
+
+      const caption = document.createElement('div');
+      caption.className = 'card-caption';
+      caption.textContent = title || 'Untitled';
+      front.appendChild(caption);
+
+      const back = document.createElement('div');
+      back.className = 'card-face card-back';
+
+      const p = document.createElement('div');
+      p.className = 'desc';
+      p.textContent = desc || 'No description provided. Click again to go back to image.';
+
+      const bottom = document.createElement('div');
+      bottom.className = 'meta';
+
+      const author = document.createElement('div');
+      author.className = 'author';
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      const avImg = document.createElement('img');
+      avImg.src = `https://picsum.photos/seed/av${seed}/80/80`;
+      avImg.alt = authorName || 'Author';
+      avImg.style.width = '100%';
+      avImg.style.height = '100%';
+      avImg.style.objectFit = 'cover';
+      avatar.appendChild(avImg);
+      const aName = document.createElement('div');
+      aName.textContent = authorName || 'Unknown';
+
+      author.appendChild(avatar);
+      author.appendChild(aName);
+
+      const btns = document.createElement('div');
+      btns.className = 'btn-row';
+      const like = document.createElement('button');
+      like.className = 'btn like';
+      like.type = 'button';
+      like.textContent = '♥ Like';
+      const save = document.createElement('button');
+      save.className = 'btn';
+      save.type = 'button';
+      save.textContent = 'Save';
+      btns.appendChild(like);
+      btns.appendChild(save);
+
+      bottom.appendChild(author);
+      bottom.appendChild(btns);
+      back.appendChild(p);
+      back.appendChild(bottom);
+
+      inner.appendChild(front);
+      inner.appendChild(back);
+      card.appendChild(inner);
+
+      const toggleFlip = (ev) => {
+        if (ev.target.closest('.btn')) return;
+        card.classList.toggle('is-flipped');
+        card.setAttribute('aria-pressed', String(card.classList.contains('is-flipped')));
+      };
+
+      card.addEventListener('click', toggleFlip);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' '){
+          e.preventDefault();
+          toggleFlip(e);
+        } else if (e.key === 'Escape') {
+          card.classList.remove('is-flipped');
+          card.setAttribute('aria-pressed','false');
+        }
+      });
+
+      like.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        like.textContent = like.textContent.includes('♥') ? '♥ Liked' : '♥ Like';
+      });
+
+      return card;
+    }
+
+    function loadMore(){
+      if (loading) return;
+      loading = true;
+      loader.textContent = 'Loading…';
+      setTimeout(() => {
+        const start = page * perPage;
+        for (let i = 0; i < perPage; i++){
+          const idx = (start + i) % sampleSeeds.length;
+          const seed = sampleSeeds[idx] + page*100 + i;
+          const title = `Pin #${start + i + 1}`;
+          const desc = 'Demo description for this image.';
+          const author = ['Aman', 'Riya', 'Siddh', 'Neha', 'Arjun'][ (start + i) % 5 ];
+          const card = makeCard(seed, title, desc, author);
+          masonry.appendChild(card);
+        }
+        page++;
+        loading = false;
+        loader.textContent = 'Scroll to load more…';
+      }, 650);
+    }
+
+    loadMore();
+    loadMore();
+
+    window.addEventListener('scroll', () => {
+      const scrollY = window.scrollY || window.pageYOffset;
+      const vh = window.innerHeight;
+      const docH = document.documentElement.scrollHeight;
+      if (!loading && scrollY + vh > docH - 500) {
+        loadMore();
+      }
+    }, { passive:true });
+  </script>
+</body>
+</html>
